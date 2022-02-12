@@ -1,0 +1,501 @@
+---
+title: "R Notebook"
+output:
+  html_notebook: default
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code.
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*.
+
+```{r}
+library(tidyr)
+library(openxlsx)
+library(readxl)
+library(tibble)
+library(ggplot2)
+library(purrr)
+library(dplyr)
+
+library(varbvs)
+library(pracma)
+
+# Manipulation des dates
+library(lubridate)
+
+# Facilite la lecture des séries temporelles avec autoplot
+library(ggfortify)
+
+# analyse et prédiction des séries temporelles univariées
+library(forecast)
+
+# Séries temporelles et calculs financiers
+library(tseries)
+
+# Séries temporelles
+library(caschrono)
+
+```
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(root.dir = "")
+setwd("C:/Users/Thibaut/Google Drive/Data Analyse/OpenClassRoom - Projets/Projet 9")
+```
+
+```{r}
+# Lecture du dataframe de RTE sur la consommation énergétique
+elec <- read.csv("C:/Users/Thibaut/Google Drive/Data Analyse/OpenClassRoom - Projets/Projet 9/data/eCO2mix_RTE_energie_M.csv", header=TRUE, sep=";")
+```
+
+```{r}
+# Lecture des données météo
+meteo <- read_excel("C:/Users/Thibaut/Google Drive/Data Analyse/OpenClassRoom - Projets/Projet 9/data/calcul_DJU_15_12_2021.xlsx")
+```
+
+Nettoyage du dataframe des degrés de jour unifiés (DJU)
+
+```{r}
+head(meteo)
+```
+
+```{r}
+# Suppression de la colonne "Total"
+meteo$Total <- NULL
+```
+
+```{r}
+colnames(meteo) <- c("Year", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12")
+meteo
+```
+
+```{r}
+# Regroupement des colonnes 2 à 13 en une seule colonne et création d'une seconde colonne qui donne le mois correspondant
+meteo <- cbind(meteo[1],stack(meteo[2:13]))
+meteo
+```
+
+```{r}
+# Création d'une colonne "date" rassemblant l'année et le mois
+meteo$Mois <- paste(meteo$Year, meteo$ind, sep = "-")
+
+```
+
+```{r}
+# Suppression des colonnes "Year" et "ind"
+meteo$Year <- NULL
+meteo$ind <- NULL
+```
+
+```{r}
+meteo
+```
+
+Nettoyage du dataframe de la Consommation électrique
+
+```{r}
+head(elec)
+```
+
+```{r}
+# Restriction au données qui concerne le territoire Français
+elec <- elec[elec$Territoire == "France",]
+
+```
+
+```{r}
+# Restriction aux colonnes  "Mois" et "Consommation.totale"
+elec <- elec %>%
+  select(Mois, Consommation.totale)
+elec
+```
+Fusion des dataframes
+
+```{r}
+# Association des deux dataframes par la colonne "Mois
+data <- merge(elec, meteo, by = "Mois")
+data
+```
+
+```{r}
+# Ajout de "-01" pour adapter la colonne "Mois" au format Date
+data$Mois <- paste(data$Mois, '-01', sep="")
+
+# Conversion de la colonne "Mois" au format Date
+data$Mois <- as.Date(data$Mois, format="%Y-%m-%d")
+data
+```
+
+```{r}
+# Identification des valeurs manquantes
+data[!complete.cases(data),]
+```
+Aucune valeur manquante n'est observée
+
+```{r}
+# Changement de nom des colonnes
+data <- rename(data, "conso_elec" = "Consommation.totale")
+data <- rename(data, "DJU" =  "values")
+```
+
+```{r}
+# Représentation graphique
+plot(data$Mois, data$conso_elec,type="l", xlab="Année", ylab="Consommation électrique")
+```
+
+```{r}
+plot(data$Mois, data$DJU, type="l", xlab="Année", ylab="Degrés jour unifié")
+```
+
+On observe sur chacun des graphiques une saisonnalité de période 12. Le graphique dédié aux degrés jour unifié présente des pics mensuels situés entre 350 et 450 en périodes d'hiver et des creux proches de 0 en périodes estivales. Cela signifie que l'écart négatif journalier avec la température de référence de 18°C atteint une somme mensuelle qui varie entre 0°C (lorsque chaque jour d'un mois est supérieur à 19°C) et 450°C.
+
+La courbe de consommation électrique montre des oscillations entre des pics qu'on situe autour de 50-60 000 terawatt-heure (TWh) par mois et des creux autour de 30-35 000 TWh mensuel pendant les périodes estivales. La saisonnalité justifie donc en France une augmentation de la consommation électrique de presque 100% entre l'été et l'hiver. Cela s'explique notamment par une diminution des températures et donc une plus grande consommation de chauffage, mais aussi par un raccourcissement des périodes d'ensoleillement et donc une plus forte utilisation des dispositifs d'éclairage.
+
+D'une année à l'autre, on observe des variations assez similaires de part et d'autre des graphiques. L'hiver 2017 présente ainsi le pic à la fois le plus étroit et le plus haut, tant en degrés de jour unifié qu'en consommation électrique. Janvier 2017 a en effet présenté une température moyenne de 2°C en dessous des normales saisonnières, tandis que février 2017 a au contraire été particulièrement doux avec une moyenne de +2°C par rapport aux températures habituelles.
+
+L'hiver 2018 présente également la spécificité d'un double pic, suggérant des variations de température importantes. L'historique des conditions météorologiques en France confirme en effet que le mois de janvier 2018 a été particulièrement doux, présentant un excédent de 3,3°C par rapport aux normales saisonnières.
+
+Quelques différences mineures, cependant, peuvent être constatées entre les deux graphiques. Les creux de consommation électrique sont en effet moins homogènes que les creux des températures. On constate en effet un petit regain de consommation d'énergie lorsque les températures sont uniformément supérieures à 18°C. Cette brève élévation de la consommation pourrait par exemple s'expliquer par une utilisation des dispositifs d'air conditionné pour compenser les fortes hausses de chaleur.
+
+La série temporelle est de type additif car l'amplitude des variations est relativement constante d'une année à l'autre. A cette échelle, nous n'observons ni croissance ni décroissance de la tendance. Dans le cas où l'amplitude des variations varierait significativement, nous parlerions alors de modèle multiplicatif. Il ne sera donc pas nécessaire de convertir nos données au format logarithmique.
+
+Relation entre la consommation électrique (x) et les degrés de jour unifié relevés (y):
+
+```{r}
+# Relation entre consommation électrique et degrés de jour unifié
+plot(x = data$conso_elec, y = data$DJU, xlab = "Consommation électrique", ylab = "Degrés jour unifié")
+```
+
+On observe une corrélation relativement linéaire entre la consommation électrique et les degrés jour unifié (DJU) relevés. 
+Quelques outliers peuvent s'observer notamment à 0 en ordonnée. Cette surconsommation électrique est probablement liée aux fortes chaleurs qui ne sont pas prises en compte dans la mesure des DJU et entraînent souvent une utilisation des appareils de refroidissement.
+
+```{r}
+# Régression linéaire de la consommation sur les degrés de jour unifié
+reg=lm(data$conso_elec~data$DJU)
+summary(reg)
+```
+
+Le modèle est plutôt de bonne qualité avec un coefficient de détermination R² de 0.936. La p-valeur est inférieure au seuil de 0,05. Notre régression pésente donc a priori des résultats statistiquement signficatifs.
+
+Source: <https://rug.mnhn.fr/semin-r/PDF/semin-R_lm_SBallesteros_110308.pdf>
+
+```{r}
+# Représentation graphique des résidus
+plot(reg)
+```
+
+Residuals vs fitted: Les résidus suivent une ligne légèrement courbée le long de la valeur 0. A l'exception de quelques valeurs (100, 112, 118), les résidus forment une bande le long de la ligne et suggèrent que nos deux variables ont une relation linéaire.
+
+Normal QQ: Les résidus semblent suivre une loi normale, à l'exception des mêmes valeurs extrêmes identifiées précédemment.
+
+Residual vs Leverage: Influence des résidus mesurée par la distance de Cook
+
+Standardized residuals: écart standardisé entre la valeur prédite et la valeur observée. Nous voyons que les points 61, 85 et 118 ont une forte influence sur le modèle.
+
+```{r}
+reg$coefficients
+```
+
+```{r}
+# calcul de la consommation d'électricité corrigée
+data$conso_correc <- data$conso_elec - (reg$coefficients[2] * data$DJU)
+data
+```
+
+```{r}
+# Suppression de la variable DJU
+data$DJU <- NULL
+```
+
+```{r}
+# Création de la série temporelle
+ts_data <- ts(data[, 2:3], start = c(2012, 1), frequency = 12)
+
+```
+
+```{r}
+# Représentation de la consommation totale et de la consommation corrigée
+autoplot(ts_data, facets=FALSE)
+```
+
+Nous observons que la consommation corrigée ne suit pas la même saisonnalité que la courbe de la consommation électrique. La consommation corrigée met en évidence les écarts aux valeurs saisonnières habituelles. Le début de l'année 2020 montre par exemple une consommation corrigée particulièrement faible, qui s'explique notamment par le 1er confinement de la pandémie du Covid-19 qui a entraîné une baisse significative de l'activité économique. En revanche, la fin 2020 montre une surconsommation particulièrement inhabituelle. 
+
+
+```{r}
+# Superposition graphique avec des échelles différentes
+autoplot(ts_data, facets=TRUE)
+```
+```{r}
+# Graphique saisonnier de la consommation corrigée
+ggseasonplot(ts_data[,2], polar=TRUE)
+```
+Le graphique confirme que la consommation corrigée maintient un caractère saisonnier car ses pics (notamment en Juillet, Janviet et Mars) sont réguliers.
+
+
+```{r}
+# Décomposition de la consommation corrigée en composantes de saison, de résidus et de tendance (par les moyennes mobiles)
+decomp_correc=decompose(ts_data[,2],type="additive")
+autoplot(decomp_correc, facets=TRUE)
+```
+
+La courbe de tendance ("trend") confirme la relative stabilité de la consommation électrique observée jusqu'en 2019, suivie d'une nette baisse en 2020 que nous avons précédemment attribuée à la baisse de l'activité occasionnée par la pandémie du Covid-19.
+
+La courbe saisonnière quant à elle montre qu'un cycle saisonnier s'est maintenu malgré la correction prenant en compte les degrés de jour unifié.
+
+Nous observons cependant que cette saisonnalité n'est pas annuelle mais plutôt semestrielle. Nous constatons en effet des valeurs extrêmes plus fréquemment que sur la courbe de la consommation électrique totale. Les valeurs hautes s'observent plutôt en hiver et en été, tandis que les valeurs basses se manifestent plutôt au printemps. Il semblerait qu'à température égale, la baisse de la consommation électrique soit plus significative au printemps qu'en automne.
+
+
+```{r}
+# Coefficients de variation de chaque variable
+coef_var <- sapply(data[,2:3], function(x) sd(x) / mean(x) * 100)
+coef_var
+
+
+# coefficient de variation corrigé par rapport à la consommation électrique totale
+coef_var[2]/coef_var[1]*100
+```
+Le coefficient de variation de la consommation électrique est bien supérieur au coefficient de variation de la consommation électrique corrigée. La consommation corrigée a en effet un coefficient de variation égale à 31.6% de la consommation totale. On peut en déduire que la consommation corrigée est moins déterminée par la saisonnalité que la série de la consommation électrique et contribuera mieux à un modèle de prédiction.
+
+
+```{r}
+# Tendance de la consommation corrigée, calculée par moyennes mobiles
+plot(decomp_correc$trend, type = "l")
+```
+
+```{r}
+# Taux de variation maximal sur la période 2012-2018
+var_1 = window(decomp_correc$trend, start=c(2012,1), end=c(2018,1))
+max((na.omit(var_1)) - min(na.omit(var_1))) / min(na.omit(var_1))*100
+
+```
+Entre 2012 et 2018, la consommation électrique corrigée et désaisonnalisée a connu une variation maximale de 2.57% de sa valeur
+
+```{r}
+# Taux de variation maximal sur la période 2018-2021
+var_2 = window(decomp_correc$trend, start=c(2018,1), end=c(2021,2))
+max((na.omit(var_2)) - min(na.omit(var_2))) / min(na.omit(var_2))*100
+```
+Entre 2018 et 2021, soit une période deux fois plus courte que la précédente, la consommation électrique corrigée et désaisonnalisée a connu une variation maximale de 6.63% de sa valeur. Nous constatons donc un écart majeur entre ces deux périodes.
+
+
+
+
+
+```{r}
+# Analyse des résidus
+checkresiduals(remainder(decomp_correc))
+```
+La courbe des résidus confirme le caractère exceptionnel des valeurs observées au début de l'année 2020.
+Enfin, il est probable que les résidus suivent une loi normale, ce qui valide notre régression.
+
+
+```{r}
+# Test de Ljung Box sur les résidus
+Box.test(decomp_correc$random,lag=1, type = "Ljung-Box")
+```
+L'hypothèse nulle HO stipule qu'il n'y a pas d'auto-corrélation des résidus. Le test de significativité des paramètres des résidus (p-value) sont validés au niveau 5%. On ne peut donc pas en déduire que les résidus sont indépendants entre eux.
+
+
+source: https://stats.stackexchange.com/questions/64711/ljung-box-statistics-for-arima-residuals-in-r-confusing-test-results
+
+```{r}
+# Test de normalité Shapiro-Wilk
+shapiro.test(decomp_correc$random)
+```
+
+L'hypothèse H0 est ici que nos résidus suivent une loi normale. Avec une p-valeur supérieure à 0,05, H0 n'est donc pas rejetée et on peut en conclure que les résidus suivent une loi normale.
+La normalité des résidus et leur absence d'auto-corrélation suggère que le lissage exponentielle de Holt-Winters est un bon moyen de modéliser la prédiction de notre série temporelle.
+
+
+
+Méthode Holt-Winters
+
+```{r}
+# Ajustement automatique avec la fonction HoltWinters
+HW1 <- HoltWinters(ts_data[,2], seasonal = "additive")
+HW1
+```
+
+
+Dans la modélisation automatique de Holt Winters:
+alpha (valeur) = 0.173
+beta (tendance) = 0.008
+gamma (saisonnalité) = 0.297
+
+La valeur alpha (0.17) indique que notre modèle détermine son niveau grâce à une part très marginale des observations récentes. 
+La tendance exprimée par la valeur beta (0.008) est proche de 0. On peut en déduire que la tendance a été très peu modifiée par les observations récentes.
+La valeur gamma est la plus élevée des valeurs relevées par notre modèle (0.297) signifie que sa saisonnalité est partiellement déterminée par les observations récentes.
+
+
+```{r}
+summary(HW1)
+```
+
+
+```{r}
+# Consommation électrique et prédiction sur un an entre 2020 et 2021 par la méthode Holt-Winters
+plot(ts_data[,2], ylab="Consommation électrique")
+lines(window(HW1$fitted[,1], start=c(2020,10), end=c(2021,10)), lty=2, col="red")
+
+```
+
+Il semblerait que la méthode Holt-Winters parvient à prédire assez bien la tendance. Les pics reproduits (en rouge) correspondent dans une certaine mesure à la réalité observée.
+
+```{r}
+pred_HW1_mean = pred_HW1$mean
+pred_HW1_low = pred_HW1$lower
+pred_HW1_up = pred_HW1$upper
+
+ts.plot(ts_data[,2], pred_HW1_mean, pred_HW1_low, pred_HW1_up, xlab="Année", ylab="Consommation corrigée", col=c(1,2,3,3), lty=c(1,1,2,2), lwd=c(3,3,2,2))
+legend("topleft", legend=c("Consommation corrigée", "Prédiction"), col=c(1,2,3,3), lty=c(1,1), lwd=c(3,3))
+legend("topright", legend=c("int_inf_95%", "int_sup_95%"), col=c(3,3), lty = c(2,2), lwd = c(2,2))
+```
+
+
+
+
+Méthode SARIMA
+
+Une série temporelle est dite "stationnaire" si cette série n'a pas de tendance, qu'elle démontre une variance et une autocorrélation qui sont constantes dans le temps.
+
+```{r}
+# Autocorrélogramme simple de la consommation corrigée
+plot(acf(ts_data[,2],lag.max = 36, plot=FALSE), ylim=c(-1,1))
+```
+
+L'autocorrélogramme présente une décroissance rapide vers 0 avec des pics tous les 5. Le processus ne semble pas stationnaire. Nous allons maintenant le confirmer par le test de Dickey-Fuller augmenté.
+
+
+```{r}
+# Test de Dickey-Fuller augmenté sur un lag de 12
+adf.test(ts_data[,2], alternative = "stationary", k = 12 )
+```
+Dans notre test, l'hypothèse nulle est que notre série temporelle est non-stationnaire. Nous constatons que la p-valeur est largement supérieure au seuil de 0.05. Nous ne pouvons pas rejeter l'hypothèse nulle. La série temporelle n'est donc pas stationnaire. 
+
+```{r}
+# Estimation du nombre de différence requise pour rendre notre processus stationnaire
+ndiffs(ts_data[,2], alpha = 0.05)
+nsdiffs(ts_data[,2], alpha = 0.05)
+```
+
+
+
+```{r}
+# Autocorrélogramme testé avec une différenciation de 1
+data_diff1 = diff(ts_data[,2], lag=12, differences = 1)
+plot(acf(data_diff1, lag.max = 36, plot = FALSE), ylim=c(-1,1))
+```
+
+Au regard, de l'autocorrélogramme, la série temporelle de première différence semble être stationnaire.
+
+```{r}
+# Test de Dickey-Fuller augmenté sur le processus différencié une fois
+adf.test(data_diff1, alternative = "stationary", k = 12)
+```
+Le test de Dickey-Fuller confirme la stationnarité de notre série temporelle avec une différence de 1.
+
+
+```{r}
+# Autocorrélogramme partiel testé avec une différenciation de 1
+plot(pacf(data_diff1, lag.max = 36, plot = FALSE), ylim=c(-1,1))
+```
+L'autocorrélogramme partiel confirme qu'avec une différence de 1 (d=1), le processus est maintenant stationnaire.
+
+
+Tester un modèle (0,0,2) (0,1,1), period = 12
+
+```{r}
+model1 = arima(ts_data[,2], order = c(1,1,1), list(order=c(1,1,1), period=12),include.mean = FALSE, method = "CSS-ML")
+summary(model1)
+```
+Au regard du MAPE, notre modèle nous donne un pourcentage d'erreur de 2,42%.
+Le MAE indique un erreur moyenne absolue de 763
+
+```{r}
+t_stat(model1)
+```
+
+```{r}
+Box.test.2(model1$residuals,nlag=c(6,12,18,24), type = "Ljung-Box",decim=4)
+```
+On peut déduire des p-valeurs que le modèle n'est pas adapté à notre série temporelle.
+
+
+
+```{r}
+model2 = arima(ts_data[,2], order = c(1,1,1), list(order=c(0,1,1), period=12),include.mean = FALSE, method = "CSS-ML")
+summary(model2)
+```
+
+```{r}
+t_stat(model2)
+```
+
+```{r}
+Box.test.2(model2$residuals,nlag=c(6,12,18,24), type = "Ljung-Box",decim=4)
+```
+
+```{r}
+model3 = arima(ts_data[,2], order = c(0,1,1), list(order=c(0,1,1), period=12),include.mean = FALSE, method = "CSS-ML")
+summary(model3)
+```
+MAPE=2.46 signifie qu'on se trompe avec 2.46 d'erreur
+MAE=772 erreur moyenne absolue (avec unités de notre variable)
+
+```{r}
+t_stat(model3)
+```
+
+```{r}
+Box.test.2(model3$residuals,nlag=c(6,12,18,24), type = "Ljung-Box",decim=4)
+```
+Il n'y a pas d'auto-corrélation.
+
+Calculer le Shapiro Wilk des résidus pour vérifier que les résidus soient bien un bruit blanc.
+
+
+
+
+
+Bibliographie:
+
+Introduction aux séries temporelles: <http://eric.univ-lyon2.fr/~jjacques/Download/Cours/ST-Cours.pdf>
+
+Les séries temporelles: <https://essicolo.github.io/ecologie-mathematique-R/chapitre-temps.html>
+
+Généralités sur les séries chronologiques: <https://www.i3s.unice.fr/~crescenz/publications/Florence/introduction-series-chronologiques_chapitre-1.pdf>
+
+Séries chronologique avec R (S. Rubenthaler): <https://cel.archives-ouvertes.fr/hal-02429148/document>
+
+Forecasting: Principles and Practice: <https://otexts.com/fpp2/>
+
+Forecasting using R (Datacamp): <https://campus.datacamp.com/courses/forecasting-in-r/exploring-and-visualizing-time-series-in-r?ex=1>
+
+Plotting ts objects: <https://cran.r-project.org/web/packages/ggfortify/vignettes/plot_ts.html>
+
+Time Series Forecasting in R with Holt-Winters: <https://towardsdatascience.com/time-series-forecasting-in-r-with-holt-winters-16ef9ebdb6c0>
+
+Test de Fickey-Fuller:
+<https://www.statology.org/dickey-fuller-test-in-r/>
+
+Time Series Analysis with R (github de Nicolas Righetti):
+<https://nicolarighetti.github.io/Time-Series-Analysis-With-R/>
+
+Time Series Analysis (R Cookbook 2nd Edition):
+<https://rc2e.com/timeseriesanalysis>
+
+Using R for Time Series Analysis:
+https://a-little-book-of-r-for-time-series.readthedocs.io/en/latest/src/timeseries.html#holt-winters-exponential-smoothing
+
+
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Ctrl+Alt+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Ctrl+Shift+K* to preview the HTML file).
+
+The preview shows you a rendered HTML copy of the contents of the editor. Consequently, unlike *Knit*, *Preview* does not run any R code chunks. Instead, the output of the chunk when it was last run in the editor is displayed.
